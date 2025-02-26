@@ -1,0 +1,200 @@
+import numpy as np
+import numpy_financial as npf
+from datetime import date
+from typing import Optional
+import calendar
+from datetime import timedelta
+import pandas as pd
+
+def calculate_npv_monthly(cashflows, annual_discount_rate):
+    """
+    Calculate the NPV of a series of monthly cashflows, given 
+    an ANNUAL discount rate (as a decimal, e.g. 0.10 for 10%).
+    
+    cashflows: list or array of monthly CFs, 
+               where cashflows[0] is Month 0, cashflows[1] is Month 1, etc.
+    annual_discount_rate: decimal (e.g. 0.10 for 10%).
+    
+    Returns: The NPV as a float.
+    """
+    # Convert annual discount rate to monthly rate
+    monthly_rate = (1 + annual_discount_rate) ** (1/12) - 1
+    
+    npv = 0.0
+    for i, cf in enumerate(cashflows):
+        npv += cf / ((1 + monthly_rate) ** i)
+    return npv
+
+
+def calculate_irr_monthly(cashflows):
+    """
+    Calculate the monthly IRR from a list of monthly cashflows 
+    using numpy's IRR. 
+    This returns the *monthly* IRR (per period = per month).
+    
+    If you want the annual IRR, you can convert it by:
+        annual_irr = (1 + monthly_irr)**12 - 1
+    """
+    monthly_irr = npf.irr(cashflows)  # per-month IRR
+    return monthly_irr
+
+def add_months(d, months):
+    # Simple function to add months to a date
+    month = d.month - 1 + months
+    year = d.year + month // 12
+    month = month % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return d.replace(year=year, month=month, day=day)
+
+
+def create_cashflow(
+    cashflow_start: date,
+    cashflow_term: float,
+    unit_area: float,
+    current_rent: float,
+    review_date: date,
+    lease_termination: date,
+    headline_erv: float,
+    ner_discount: float,
+    refurb_cost: float,
+    refurb_duration: float,
+    void_period: float,
+    rf: float,
+    relet_term: float,
+    exit_cap: float,
+    rates_relief: float,
+    vacant_sc: float,
+    relet_rent: Optional[float] = None,
+    ):
+    '''Input unit and lease details to calculate a cashflow for X inputted months.
+    
+    Parameters:
+        relet_rent: Optional; if not provided, defaults to None.
+        review_date and lease_termination: Must be datetime.date objects.
+    '''
+    if not isinstance(review_date, date):
+        raise TypeError("review_date must be a datetime.date instance")
+    if not isinstance(lease_termination, date):
+        raise TypeError("lease_termination must be a datetime.date instance")
+    
+
+    cashflows = []
+    # Calculate relet_date as lease_termination plus refurb_duration and void_period (in months)
+    relet_months = int(refurb_duration + void_period)
+    relet_date = add_months(lease_termination, relet_months)
+    print(relet_date)
+
+    # Monthly refurb cost per month (as a negative cashflow)
+    monthly_refurb_cost = -(refurb_cost * unit_area) / refurb_duration
+
+    for i in range(int(cashflow_term)):
+        period_start = add_months(cashflow_start, i)
+        period_end = add_months(cashflow_start, i + 1)
+        days_in_period = (period_end - period_start).days
+
+        rent_amount = 0.0
+        category = ""
+
+        # Rental income from current rent until lease termination
+        if period_start < lease_termination:
+            # current_rent is annual; convert to monthly
+            monthly_rent = current_rent / 12
+            rent_amount = monthly_rent
+            category = "contracted_rent"
+
+        # Refurbishment costs apply for the refurb period (starting at lease_termination)
+        refurb_cost_amount = 0.0
+        refurb_end = add_months(lease_termination, int(refurb_duration))
+        if lease_termination <= period_start < refurb_end:
+            refurb_cost_amount = monthly_refurb_cost
+            category = "refurbishment_period"
+
+        # Void period after refurbishment and before relet
+        void_end = add_months(refurb_end, int(void_period))
+        if refurb_end <= period_start < void_end:
+            category = "void_period"
+            
+        rf_end = add_months(void_end, int(rf))
+        if void_end <= period_start < rf_end:
+            rent_amount = 0
+            category = "rf_period"
+
+        # Rental income from new rent starting on relet_date
+        elif period_start >= relet_date:
+            # Use relet_rent if provided; otherwise new rent is headline_erv * unit_area (annual)
+            annual_new_rent = relet_rent if relet_rent is not None else headline_erv * unit_area
+            # Convert annual new rent to monthly
+            monthly_new_rent = annual_new_rent / 12
+            rent_amount = monthly_new_rent
+            category = "relet_rent"
+
+        cashflows.append({
+            "cashflow": rent_amount + refurb_cost_amount,
+            "category": category
+        })
+      
+    print(cashflows)
+    # Convert the list of cashflows to a DataFrame
+    cashflows_df = pd.DataFrame(cashflows)
+    cashflows_df['month'] = range(len(cashflows))
+    
+    # # After cashflows are fully populated, convert the list to a DataFrame.
+    # cashflows = pd.DataFrame({
+    #     "month": range(len(cashflows)),
+    #     "cashflow": cashflows
+    # })
+
+    return cashflows_df # Function logic goes here
+
+# Test the function
+if __name__ == "__main__":
+    cashflow = create_cashflow(
+        cashflow_start=date(2025, 1, 1),
+        cashflow_term=60,
+        unit_area=10000,
+        current_rent=50000,
+        review_date=date(2025, 6, 30),
+        lease_termination=date(2025, 12, 31),
+        headline_erv=20,
+        ner_discount=0.05,
+        refurb_cost=20,
+        refurb_duration=3,
+        void_period=3,
+        rf=3,
+        relet_term=6,
+        exit_cap=0.06,
+        rates_relief=3,
+        vacant_sc=2)
+    import matplotlib.pyplot as plt
+
+    # Plot the cashflows
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Define colors for each category
+    colors = {
+        "contracted_rent": "green",
+        "refurbishment_period": "red",
+        "void_period": "yellow",
+        "rf_period": "blue",
+        "relet_rent": "purple"
+    }
+
+    # Plot each category with area shading
+    for category, color in colors.items():
+        category_data = cashflow[cashflow['category'] == category]
+        ax.fill_between(category_data['month'], category_data['cashflow'], color=color, alpha=0.5, label=category)
+
+    # Plot the cashflow line
+    ax.plot(cashflow['month'], cashflow['cashflow'], color='black', linewidth=2, label='Cashflow')
+
+    # Add labels and legend
+    ax.set_xlabel('Month')
+    ax.set_ylabel('Cashflow')
+    ax.set_title('Cashflow Over Time with Category Shading')
+    ax.legend()
+
+    # Show the plot
+    plt.show()
+
+    print(cashflow)
+    
