@@ -1,49 +1,128 @@
-# src/main.py
-
 import streamlit as st
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import itertools
+from datetime import date
 
-from npv_irr_calculations import calculate_npv_monthly, calculate_irr_monthly
+from npv_irr_calculations import create_cashflow
 
 def main():
     st.title("Commercial Real Estate NPV/IRR Model (Monthly)")
 
     st.subheader("Model Inputs")
-    # Ask user for number of months in the investment
-    months = st.number_input("Investment Duration (months)", min_value=1, value=60, step=1)
 
-    # Ask user for an annual discount rate
-    annual_discount_rate = st.number_input("Annual Discount Rate (decimal)", 
-                                           min_value=0.0, value=0.10, step=0.01)
+    cashflow_start = st.date_input("Cashflow Start Date", value=date(2025, 1, 1))
+    cashflow_term = st.number_input("Cashflow Term (months)", value=60)
+    unit_area = st.number_input("Unit Area (sq ft)", value=10000)
+    current_rent = st.number_input("Current Rent (£ per month)", value=50000)
+    review_date = st.date_input("Review Date", value=date(2025, 6, 30))
+    lease_termination = st.date_input("Lease Termination Date", value=date(2025, 12, 31))
+    headline_erv = st.number_input("Headline ERV (£ per sq ft)", value=20)
+    ner_discount = st.number_input("NER Discount (%)", value=50)
+    refurb_cost = st.number_input("Refurbishment Cost (£ per sq ft)", value=20)
+    refurb_duration = st.number_input("Refurbishment Duration (months)", value=3)
+    void_period = st.number_input("Void Period (months)", value=12)
+    rf = st.number_input("Rent Free Period (months)", value=3)
+    relet_term = st.number_input("Relet Term (months)", value=6)
+    exit_cap = st.number_input("Exit Cap Rate (%)", value=6)
+    vacant_rates_percent = st.number_input("Vacant Rates Percent (%)", value=50)
+    rates_relief = st.number_input("Rates Relief (months)", value=3)
+    vacant_sc = st.number_input("Vacant Service Charge (£ per sq ft)", value=2)
 
-    st.write("Enter your monthly cashflows, starting with an initial outflow (Month 0).")
+    if st.button("Calculate Cashflow"):
+        cashflow = create_cashflow(
+            cashflow_start=cashflow_start,
+            cashflow_term=cashflow_term,
+            unit_area=unit_area,
+            current_rent=current_rent,
+            review_date=review_date,
+            lease_termination=lease_termination,
+            headline_erv=headline_erv,
+            ner_discount=ner_discount/100,
+            refurb_cost=refurb_cost,
+            refurb_duration=refurb_duration,
+            void_period=void_period,
+            rf=rf,
+            relet_term=relet_term,
+            exit_cap=exit_cap/100,
+            vacant_rates_percent=vacant_rates_percent/100,
+            rates_relief=rates_relief,
+            vacant_sc=vacant_sc
+        )
 
-    # We can gather monthly cashflows in a loop or dynamically
-    # For brevity, let's do a text_area or a loop. We'll do a simple approach:
-    # Loop from 0 to months-1. If months is large, you might want a file upload or something more robust.
-
-    cashflows = []
-    for m in range(months):
-        default_val = -100000.0 if m == 0 else 2000.0  # example defaults
-        cf = st.number_input(f"Month {m} Cashflow", value=default_val, step=500.0, key=f"cf_{m}")
-        cashflows.append(cf)
-
-    if st.button("Calculate Monthly NPV & IRR"):
-        # Calculate monthly NPV
-        npv_value = calculate_npv_monthly(cashflows, annual_discount_rate)
+        st.subheader("Cashflow Data")
+        st.dataframe(cashflow)
+        # Pivot dataset so that 'category' become columns, keeping 'month' and filling missing values with 0
+        pivot_df = cashflow.pivot(index="month", columns="category", values="cashflow").fillna(0).reset_index()
+        st.subheader("Pivoted Cashflow Data")
+        st.dataframe(pivot_df)
         
-        # Calculate monthly IRR
-        monthly_irr = calculate_irr_monthly(cashflows)
-        # Optionally convert monthly IRR to annual IRR:
-        annual_irr = (1 + monthly_irr)**12 - 1 if monthly_irr is not None else None
+        # Plot the cashflows
+        fig, ax = plt.subplots(figsize=(10, 6))
 
-        st.write(f"**NPV (Monthly):** {npv_value:,.2f}")
-        
-        if monthly_irr is not None:
-            st.write(f"**Monthly IRR:** {monthly_irr * 100:,.2f}%")
-            st.write(f"**Annualized IRR (from Monthly):** {annual_irr * 100:,.2f}%")
-        else:
-            st.write("IRR could not be calculated (check cashflow inputs)")
+        # Define colors for each category
+        colors = {
+            "contracted_rent": "green",
+            "reviewed_rent": "lightgreen",
+            "refurbishment_period": "orange",
+            "void_period": "red",
+            "rf_period": "yellow",
+            "relet_rent": "blue"
+        }
+        import plotly.graph_objects as go
+
+        # Create an interactive Plotly figure
+        fig = go.Figure()
+
+        # Add shapes for each contiguous category period
+        for category, color in colors.items():
+            cat_months = cashflow[cashflow["category"] == category]["month"].tolist()
+            if not cat_months:
+                continue
+
+            # Identify contiguous segments
+            segs = []
+            for k, g in itertools.groupby(enumerate(cat_months), key=lambda ix: ix[1] - ix[0]):
+                group = list(g)
+                start = group[0][1]
+                end = group[-1][1]
+                segs.append((start, end))
+
+            for start, end in segs:
+                fig.add_shape(
+                    type="rect",
+                    x0=start,
+                    x1=end + 1,
+                    y0=cashflow["cashflow"].min(),
+                    y1=cashflow["cashflow"].max(),
+                    fillcolor=color,
+                    opacity=0.3,
+                    layer="below",
+                    line_width=0,
+                )
+
+        # Add the cashflow line over the shaded background
+        fig.add_trace(
+            go.Scatter(
+                x=cashflow["month"],
+                y=cashflow["cashflow"],
+                mode="lines",
+                line=dict(color="black", width=2),
+                name="Cashflow",
+            )
+        )
+
+        # Update layout for titles and axis labels
+        fig.update_layout(
+            title="Cashflow Over Time with Full-Row Category Shading",
+            xaxis_title="Month",
+            yaxis_title="Cashflow",
+            showlegend=True,
+        )
+
+        # Render the Plotly chart in Streamlit
+        st.plotly_chart(fig)
 
 if __name__ == "__main__":
     main()
