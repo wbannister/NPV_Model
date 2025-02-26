@@ -104,6 +104,11 @@ def create_cashflow(
             rent_amount = monthly_rent
             category = "contracted_rent"
 
+            if review_date < lease_termination and period_start >= review_date and ((headline_erv*unit_area) * ner_discount) > current_rent:
+                reviewed_monthly_rent = ((headline_erv*unit_area) * ner_discount) / 12
+                rent_amount = reviewed_monthly_rent
+                category = "reviewed_rent"
+
         # Refurbishment costs apply for the refurb period (starting at lease_termination)
         refurb_cost_amount = 0.0
         refurb_end = add_months(lease_termination, int(refurb_duration))
@@ -161,7 +166,7 @@ if __name__ == "__main__":
         review_date=date(2025, 6, 30),
         lease_termination=date(2025, 12, 31),
         headline_erv=20,
-        ner_discount=0.05,
+        ner_discount=0.50,
         refurb_cost=20,
         refurb_duration=3,
         void_period=12,
@@ -179,6 +184,7 @@ if __name__ == "__main__":
     # Define colors for each category
     colors = {
         "contracted_rent": "green",
+        "reviewed_rent": "lightgreen",
         "refurbishment_period": "orange",
         "void_period": "red",
         "rf_period": "yellow",
