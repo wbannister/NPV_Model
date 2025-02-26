@@ -6,38 +6,20 @@ import calendar
 from datetime import timedelta
 import pandas as pd
 import itertools
+from pyxirr import xirr, xnpv
 
-def calculate_npv_monthly(cashflows, annual_discount_rate):
+def calculate_irr(dates, cashflows):
     """
-    Calculate the NPV of a series of monthly cashflows, given 
-    an ANNUAL discount rate (as a decimal, e.g. 0.10 for 10%).
-    
-    cashflows: list or array of monthly CFs, 
-               where cashflows[0] is Month 0, cashflows[1] is Month 1, etc.
-    annual_discount_rate: decimal (e.g. 0.10 for 10%).
-    
-    Returns: The NPV as a float.
-    """
-    # Convert annual discount rate to monthly rate
-    monthly_rate = (1 + annual_discount_rate) ** (1/12) - 1
-    
-    npv = 0.0
-    for i, cf in enumerate(cashflows):
-        npv += cf / ((1 + monthly_rate) ** i)
-    return npv
+    Uses the pyXIRR package to calculate the IRR of a series of cashflows
+    with corresponding dates."""
 
+    return xirr(dates,cashflows)
 
-def calculate_irr_monthly(cashflows):
+def calculate_npv(discount_rate, dates, cashflows):
     """
-    Calculate the monthly IRR from a list of monthly cashflows 
-    using numpy's IRR. 
-    This returns the *monthly* IRR (per period = per month).
+    Uses the pyXIRR package to calculate the NPV of a series of cashflows with corresponding dates."""
     
-    If you want the annual IRR, you can convert it by:
-        annual_irr = (1 + monthly_irr)**12 - 1
-    """
-    monthly_irr = npf.irr(cashflows)  # per-month IRR
-    return monthly_irr
+    return xnpv(discount_rate, dates, cashflows)
 
 def add_months(d, months):
     # Simple function to add months to a date
@@ -67,12 +49,17 @@ def create_cashflow(
     rates_relief: float,
     vacant_sc: float,
     relet_rent: Optional[float] = None,
+    entry_price: float = 0.0,
+    exit_price: float = 0.0,
     ):
-    '''Input unit and lease details to calculate a cashflow for X inputted months.
+    '''Input unit and lease details to calculate a cashflow for X inputted months,
+    plus an initial entry price and a final exit price.
     
     Parameters:
         relet_rent: Optional; if not provided, defaults to None.
         review_date and lease_termination: Must be datetime.date objects.
+        entry_price: Cashflow amount added at the start (a day before the first period).
+        exit_price: Cashflow amount added at the end (a day after the final period).
     '''
     if not isinstance(review_date, date):
         raise TypeError("review_date must be a datetime.date instance")
@@ -159,20 +146,54 @@ def create_cashflow(
         if row.get("rf_period", 0) < 0:
             row["relet_rent"] = -row["rf_period"]
             
-
-        # print(row)
         cashflows.append(row)
     
     # Convert the list of cashflows to a DataFrame
     cashflows_df = pd.DataFrame(cashflows)
+    # Set up a month index starting at 0 for the computed cashflows
     cashflows_df['month'] = range(len(cashflows))
     
     # Calculate the total cashflow for each month
     cashflows_df['cashflow'] = cashflows_df.drop(columns=['month','category']).sum(axis=1)
     cashflows_df['period_start'] = cashflows_df['month'].apply(lambda m: add_months(cashflow_start, m))
     cashflows_df['period_end'] = cashflows_df['period_start'].apply(lambda d: d.replace(day=calendar.monthrange(d.year, d.month)[1]))
+    
+    # Incorporate entry_price and exit_price. Create an entry row one day before cashflow_start
+    entry_row = pd.DataFrame({
+        'month': [0],
+        'cashflow': [-entry_price],
+        'period_start': [cashflow_start - timedelta(days=1)],
+        'period_end': [cashflow_start - timedelta(days=1)],
+        'category': ['entry']
+    })
+    
+    # Shift main cashflows by 1 month index so they come after the entry row
+    cashflows_df['month'] = cashflows_df['month'] + 1
+    
+    # Create an exit row one day after the final period_end of the main cashflows
+    exit_row = pd.DataFrame({
+        'month': [cashflows_df['month'].max() + 1],
+        'cashflow': [exit_price],
+        'period_start': [cashflows_df.iloc[-1]['period_end'] + timedelta(days=1)],
+        'period_end': [cashflows_df.iloc[-1]['period_end'] + timedelta(days=1)],
+        'category': ['exit']
+    })
+    
+    # Concatenate entry row, main cashflows, and exit row
+    cashflows_df = pd.concat([entry_row, cashflows_df, exit_row], ignore_index=True)
+    
 
-    # print(cashflows_df)
+    def compute_cashflow_line(row):
+        if row['category'] == 'entry':
+            return row['cashflow'] + entry_price
+        elif row['category'] == 'exit':
+            return row['cashflow'] - exit_price
+        else:
+            return row['cashflow']
+
+    cashflows_df['cashflow_line'] = cashflows_df.apply(compute_cashflow_line, axis=1)
+    print(cashflows_df)    
+    # Reorder columns if necessary
     return cashflows_df
 
 # Test the function
@@ -194,8 +215,14 @@ if __name__ == "__main__":
         exit_cap=0.06,
         vacant_rates_percent=0.5,
         rates_relief=3,
-        vacant_sc=2)
+        vacant_sc=2,
+        entry_price=1000000,
+        exit_price=2000000)
+    print(calculate_irr(cashflow['period_start'], cashflow['cashflow']))
+    print(calculate_npv(0.1, cashflow['period_start'], cashflow['cashflow']))
     import matplotlib.pyplot as plt
+
+
 
     # Plot the cashflows
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -236,7 +263,7 @@ if __name__ == "__main__":
                 ax.axvspan(start, end + 1, facecolor=color, alpha=0.3)
 
     # Plot the cashflow line over the shaded backgrounds
-    ax.plot(cashflow['month'], cashflow['cashflow'], color='black', linewidth=2, label='Cashflow')
+    ax.plot(cashflow['month'], cashflow['cashflow_line'], color='black', linewidth=2, label='Cashflow')
 
     # Add a horizontal line at y=0 to clearly separate positive and negative cashflows
     ax.axhline(0, color='black', linewidth=1, linestyle='-')
