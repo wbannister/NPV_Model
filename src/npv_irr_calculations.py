@@ -5,6 +5,7 @@ from typing import Optional
 import calendar
 from datetime import timedelta
 import pandas as pd
+import itertools
 
 def calculate_npv_monthly(cashflows, annual_discount_rate):
     """
@@ -62,6 +63,7 @@ def create_cashflow(
     rf: float,
     relet_term: float,
     exit_cap: float,
+    vacant_rates_percent: float,
     rates_relief: float,
     vacant_sc: float,
     relet_rent: Optional[float] = None,
@@ -113,6 +115,15 @@ def create_cashflow(
         void_end = add_months(refurb_end, int(void_period))
         if refurb_end <= period_start < void_end:
             category = "void_period"
+            # Calculate vacant service charge
+            vacant_sc_amount = -(unit_area * vacant_sc / 12)
+            rent_amount += vacant_sc_amount
+
+            # Calculate vacant rates if beyond rates relief period
+            void_month = (period_start - refurb_end).days // 30 + 1
+            if void_month > rates_relief:
+                vacant_rates_amount = -(vacant_rates_percent * (headline_erv*unit_area) / 12)
+                rent_amount += vacant_rates_amount
             
         rf_end = add_months(void_end, int(rf))
         if void_end <= period_start < rf_end:
@@ -133,18 +144,12 @@ def create_cashflow(
             "category": category
         })
       
-    print(cashflows)
+    
     # Convert the list of cashflows to a DataFrame
     cashflows_df = pd.DataFrame(cashflows)
     cashflows_df['month'] = range(len(cashflows))
-    
-    # # After cashflows are fully populated, convert the list to a DataFrame.
-    # cashflows = pd.DataFrame({
-    #     "month": range(len(cashflows)),
-    #     "cashflow": cashflows
-    # })
 
-    return cashflows_df # Function logic goes here
+    return cashflows_df
 
 # Test the function
 if __name__ == "__main__":
@@ -159,10 +164,11 @@ if __name__ == "__main__":
         ner_discount=0.05,
         refurb_cost=20,
         refurb_duration=3,
-        void_period=3,
+        void_period=12,
         rf=3,
         relet_term=6,
         exit_cap=0.06,
+        vacant_rates_percent=0.5,
         rates_relief=3,
         vacant_sc=2)
     import matplotlib.pyplot as plt
@@ -173,28 +179,50 @@ if __name__ == "__main__":
     # Define colors for each category
     colors = {
         "contracted_rent": "green",
-        "refurbishment_period": "red",
-        "void_period": "yellow",
-        "rf_period": "blue",
-        "relet_rent": "purple"
+        "refurbishment_period": "orange",
+        "void_period": "red",
+        "rf_period": "yellow",
+        "relet_rent": "blue"
     }
 
-    # Plot each category with area shading
+    # Plot background shading as full rectangles for each contiguous period in each category.
     for category, color in colors.items():
-        category_data = cashflow[cashflow['category'] == category]
-        ax.fill_between(category_data['month'], category_data['cashflow'], color=color, alpha=0.5, label=category)
+        cat_months = cashflow[cashflow['category'] == category]['month'].tolist()
+        if not cat_months:
+            continue
 
-    # Plot the cashflow line
+        # Identify contiguous segments
+        segs = []
+        for k, g in itertools.groupby(enumerate(cat_months), key=lambda ix: ix[1] - ix[0]):
+            group = list(g)
+            start = group[0][1]
+            end = group[-1][1]  # end month of the segment
+            segs.append((start, end))
+
+        # Only add label on the first segment for legend clarity
+        first = True
+        for start, end in segs:
+            # Extend the shading to the full chart height (from bottom to top).
+            # end+1 used to cover the full month span.
+            if first:
+                ax.axvspan(start, end + 1, facecolor=color, alpha=0.3, label=category)
+                first = False
+            else:
+                ax.axvspan(start, end + 1, facecolor=color, alpha=0.3)
+
+    # Plot the cashflow line over the shaded backgrounds
     ax.plot(cashflow['month'], cashflow['cashflow'], color='black', linewidth=2, label='Cashflow')
+
+    # Add a horizontal line at y=0 to clearly separate positive and negative cashflows
+    ax.axhline(0, color='black', linewidth=1, linestyle='-')
 
     # Add labels and legend
     ax.set_xlabel('Month')
     ax.set_ylabel('Cashflow')
-    ax.set_title('Cashflow Over Time with Category Shading')
+    ax.set_title('Cashflow Over Time with Full-Row Category Shading')
     ax.legend()
 
     # Show the plot
     plt.show()
 
     print(cashflow)
-    
