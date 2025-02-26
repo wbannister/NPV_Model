@@ -79,8 +79,16 @@ def create_cashflow(
     if not isinstance(lease_termination, date):
         raise TypeError("lease_termination must be a datetime.date instance")
     
-
     cashflows = []
+    # Define the distinct categories you want cashflow series for
+    categories = [
+        "contracted_rent",
+        "reviewed_rent",
+        "refurbishment_period",
+        "void_period",
+        "rf_period",
+        "relet_rent"
+    ]
     # Calculate relet_date as lease_termination plus refurb_duration and void_period (in months)
     relet_months = int(refurb_duration + void_period)
     relet_date = add_months(lease_termination, relet_months)
@@ -90,12 +98,15 @@ def create_cashflow(
     monthly_refurb_cost = -(refurb_cost * unit_area) / refurb_duration
 
     for i in range(int(cashflow_term)):
+        # Initialize a row with zero for each category
+        row = {cat: 0.0 for cat in categories}
+
         period_start = add_months(cashflow_start, i)
         period_end = add_months(cashflow_start, i + 1)
         days_in_period = (period_end - period_start).days
 
         rent_amount = 0.0
-        category = ""
+        category = None
 
         # Rental income from current rent until lease termination
         if period_start < lease_termination:
@@ -103,57 +114,65 @@ def create_cashflow(
             monthly_rent = current_rent / 12
             rent_amount = monthly_rent
             category = "contracted_rent"
-
-            if review_date < lease_termination and period_start >= review_date and ((headline_erv*unit_area) * ner_discount) > current_rent:
-                reviewed_monthly_rent = ((headline_erv*unit_area) * ner_discount) / 12
+            if review_date < lease_termination and period_start >= review_date and ((headline_erv * unit_area) * ner_discount) > current_rent:
+                reviewed_monthly_rent = ((headline_erv * unit_area) * ner_discount) / 12
                 rent_amount = reviewed_monthly_rent
                 category = "reviewed_rent"
 
-        # Refurbishment costs apply for the refurb period (starting at lease_termination)
         refurb_cost_amount = 0.0
         refurb_end = add_months(lease_termination, int(refurb_duration))
+        # Refurbishment costs apply for the refurb period (starting at lease_termination)
         if lease_termination <= period_start < refurb_end:
             refurb_cost_amount = monthly_refurb_cost
             category = "refurbishment_period"
 
-        # Void period after refurbishment and before relet
         void_end = add_months(refurb_end, int(void_period))
+        # Void period after refurbishment and before relet
         if refurb_end <= period_start < void_end:
             category = "void_period"
             # Calculate vacant service charge
             vacant_sc_amount = -(unit_area * vacant_sc / 12)
-            rent_amount += vacant_sc_amount
+            rent_amount = vacant_sc_amount
 
             # Calculate vacant rates if beyond rates relief period
             void_month = (period_start - refurb_end).days // 30 + 1
             if void_month > rates_relief:
-                vacant_rates_amount = -(vacant_rates_percent * (headline_erv*unit_area) / 12)
-                rent_amount += vacant_rates_amount
-            
-        rf_end = add_months(void_end, int(rf))
-        if void_end <= period_start < rf_end:
-            rent_amount = 0
-            category = "rf_period"
+                vacant_rates_amount = -(vacant_rates_percent * (headline_erv * unit_area) / 12)
+                rent_amount = vacant_sc_amount + vacant_rates_amount
 
-        # Rental income from new rent starting on relet_date
+        rf_end = add_months(void_end, int(rf))
+        annual_new_rent = relet_rent if relet_rent is not None else headline_erv * unit_area
+        monthly_new_rent = annual_new_rent / 12
+        if void_end <= period_start < rf_end:
+            rent_amount = -monthly_new_rent
+            category = "rf_period"
         elif period_start >= relet_date:
-            # Use relet_rent if provided; otherwise new rent is headline_erv * unit_area (annual)
-            annual_new_rent = relet_rent if relet_rent is not None else headline_erv * unit_area
-            # Convert annual new rent to monthly
-            monthly_new_rent = annual_new_rent / 12
             rent_amount = monthly_new_rent
             category = "relet_rent"
 
-        cashflows.append({
-            "cashflow": rent_amount + refurb_cost_amount,
-            "category": category
-        })
-      
+        # Assign the computed cashflow to the corresponding category series
+        if category:
+            row[category] = rent_amount + refurb_cost_amount
+            row["category"] = category
+
+        # If rf_period is less than 0, update the relet_rent value in that row to be the inverse of the rf_period value
+        if row.get("rf_period", 0) < 0:
+            row["relet_rent"] = -row["rf_period"]
+            
+
+        # print(row)
+        cashflows.append(row)
     
     # Convert the list of cashflows to a DataFrame
     cashflows_df = pd.DataFrame(cashflows)
     cashflows_df['month'] = range(len(cashflows))
+    
+    # Calculate the total cashflow for each month
+    cashflows_df['cashflow'] = cashflows_df.drop(columns=['month','category']).sum(axis=1)
+    cashflows_df['period_start'] = cashflows_df['month'].apply(lambda m: add_months(cashflow_start, m))
+    cashflows_df['period_end'] = cashflows_df['period_start'].apply(lambda d: d.replace(day=calendar.monthrange(d.year, d.month)[1]))
 
+    # print(cashflows_df)
     return cashflows_df
 
 # Test the function
@@ -230,5 +249,3 @@ if __name__ == "__main__":
 
     # Show the plot
     plt.show()
-
-    print(cashflow)

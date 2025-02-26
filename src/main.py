@@ -53,10 +53,6 @@ def main():
 
         st.subheader("Cashflow Data")
         st.dataframe(cashflow)
-        # Pivot dataset so that 'category' become columns, keeping 'month' and filling missing values with 0
-        pivot_df = cashflow.pivot(index="month", columns="category", values="cashflow").fillna(0).reset_index()
-        st.subheader("Pivoted Cashflow Data")
-        st.dataframe(pivot_df)
         
         # Plot the cashflows
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -101,6 +97,19 @@ def main():
                     layer="below",
                     line_width=0,
                 )
+                
+            # Add a transparent scatter trace for the legend entry
+            fig.add_trace(
+                {
+                    "type": "scatter",
+                    "x": [None],
+                    "y": [None],
+                    "mode": "markers",
+                    "marker": {"size": 10, "color": color},
+                    "name": category,
+                    "showlegend": True,
+                }
+            )
 
         # Add the cashflow line over the shaded background
         fig.add_trace(
