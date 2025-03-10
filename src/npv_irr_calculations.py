@@ -29,11 +29,125 @@ def add_months(d, months):
     day = min(d.day, calendar.monthrange(year, month)[1])
     return d.replace(year=year, month=month, day=day)
 
+def yrs_to_review(cashflow_start, review_date):
+    '''function to calculate the years to review, whereby:
+    - if the cashflow start date is after the review date, it's 0
+    - if the cashflow start date is before the review date, it's the time from cashflow start until the review date'''
+    
+    if cashflow_start > review_date:
+        yrs_to_review = 0
+    else:
+        yrs_to_review = (review_date - cashflow_start).days / 365.25
+    return yrs_to_review
+
+def yrs_to_reversion(cashflow_start, lease_termination, initial_void, initial_rf, end_void, relet_rf):
+    '''function to calculate the years to reversion, whereby:
+    - if the cashflow start date is after the lease_termination date, it's the time from cashflow start until the end of the initial void+rf period
+    - if the cashflow start date is before the lease_termination date, it's the time from the lease_termination date + relet void+rf period from the cashflow start date'''
+    
+    if cashflow_start > lease_termination:
+        yrs_reversion = (add_months(cashflow_start, int(initial_void + initial_rf)) - cashflow_start).days / 365.25
+    else:
+        yrs_reversion = (add_months(lease_termination, int(end_void + relet_rf)) - cashflow_start).days / 365.25
+    return yrs_reversion
+
+
+print(yrs_to_review(date(2024, 12, 31), date(2029, 6, 7)))
+
+
+def rent_yp(discount_rate, cashflow_start, review_date, lease_termination):
+    '''function to calculate the rent years purchase, i.e. the amount to multiply the current rent by to get the PV of the remaining rent roll'''
+    
+    discount_factor = (1+discount_rate)
+    
+    yrs_review = yrs_to_review(cashflow_start, review_date)
+        
+    # code block to calculate the remaining term of the lease
+    if cashflow_start > lease_termination:
+        remaining_term = 0
+    else:
+        remaining_term = (lease_termination - cashflow_start).days / 365.25
+        
+    rent_yp = (1-(discount_factor)**(-min(yrs_review, remaining_term)))/discount_rate
+    
+    return rent_yp
+
+#print(rent_yp(0.0705, date(2024, 12, 31), date(2029, 6, 7), date(2034, 5, 27)))
+
+
+def rent_review_yp(discount_rate, cashflow_start, lease_start, review_date, lease_termination, initial_void, initial_rf, end_void, relet_rf):
+    '''function to calculate the rent review years purchase, i.e. the amount to multiply any uplift from a rent review by to get the PV of the uplift in rent expected'''
+    
+    discount_factor = (1+discount_rate)
+    
+    yrs_reversion = yrs_to_reversion(cashflow_start, lease_termination, initial_void, initial_rf, end_void, relet_rf)
+    
+    yrs_review = yrs_to_review(cashflow_start, review_date)
+    
+    if review_date == lease_termination:
+        rr_val = 0
+    else:
+        rr_val = ((1 - (1/discount_factor)**(yrs_reversion - yrs_review)) / discount_rate) * ((1/discount_factor)**yrs_review)
+        
+    rr_yp = max(0, rr_val)
+    
+    return rr_yp
+
+# print(rent_review_yp(0.0705, date(2024, 12, 31), date(2019, 6, 7), date(2029, 6, 7), date(2034, 5, 27), 0, 0, 0, 12))
+        
+        
+def reversion_yp(discount_rate, cashflow_start, lease_start, review_date, lease_termination, initial_void, initial_rf, end_void, relet_rf):
+    '''function to calculate the reversion years purchase, i.e. the amount to multiply the reversionary rent by to get the PV of the ERV'''
+
+    discount_factor = (1+discount_rate)
+    rent_date = add_months(lease_start, initial_rf)
+    
+    reversion_rent_start = add_months(lease_termination, end_void+relet_rf)
+    
+    yrs_reversion = yrs_to_reversion(cashflow_start, lease_termination, initial_void, initial_rf, end_void, relet_rf)
+    
+    void_yp_rent_start = ((1-(discount_factor) ** -((lease_termination-rent_date).days / 365.25))/discount_rate) * (1/discount_factor) ** yrs_to_review(cashflow_start, rent_date)        
+    void_yp_to_expiry = (1/discount_rate) * (1/discount_factor) ** ((reversion_rent_start-cashflow_start).days / 365.25)
+    
+    let_rev_yp = (1/discount_rate) * ((1/discount_factor) ** yrs_reversion)
+    
+    if lease_start > cashflow_start:
+        return void_yp_rent_start + void_yp_to_expiry
+    else:
+        return let_rev_yp
+
+rentyp = rent_yp(0.0705, date(2024, 12, 31), date(2029, 6, 7), date(2034, 5, 27))
+rr_yp = rent_review_yp(0.0705, date(2024, 12, 31), date(2019, 6, 7), date(2029, 6, 7), date(2034, 5, 27), 0, 0, 0, 12)
+rev_yp = reversion_yp(0.0705, date(2024, 12, 31), date(2019, 6, 7), date(2029, 6, 7), date(2034, 5, 27), 0, 0, 0, 12)
+
+
+def valuation(current_rent, rent_yp, headline_erv, ner_discount, rent_review_yp, reversion_yp):
+    
+    rent_val = current_rent * rent_yp
+    print(rent_val)
+    net_effective_rent = headline_erv * ner_discount
+    if current_rent > net_effective_rent:
+        review_val = current_rent * rent_review_yp
+    else:
+        review_val = net_effective_rent * rent_review_yp
+    
+    print(review_val)
+    reversion_val = headline_erv * reversion_yp
+    
+    print(reversion_val)
+    return rent_val + review_val + reversion_val
+
+print(valuation(220816, rentyp, 325286, 1, rr_yp, rev_yp))
+
+### Valuation function works in this one unit example. Work needs to be done in making the calling of this function more efficient (i.e. done while inputting the rest of the stuff for the cashflow..).
+### Can we make this valuation function work so that it get's applied on each cashflow month, showing value change over time. 
+
 
 def create_cashflow(
     cashflow_start: date,
     cashflow_term: float,
     unit_area: float,
+    lease_start: date,
     current_rent: float,
     review_date: date,
     lease_termination: date,
@@ -202,6 +316,7 @@ if __name__ == "__main__":
         cashflow_start=date(2025, 1, 1),
         cashflow_term=60,
         unit_area=10000,
+        lease_start=date(2020, 1, 1),
         current_rent=50000,
         review_date=date(2025, 6, 30),
         lease_termination=date(2025, 12, 31),

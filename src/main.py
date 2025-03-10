@@ -15,6 +15,7 @@ def main():
     cashflow_start = st.sidebar.date_input("Cashflow Start Date", value=date(2025, 1, 1))
     cashflow_term = st.sidebar.number_input("Cashflow Term (months)", value=60)
     unit_area = st.sidebar.number_input("Unit Area (sq ft)", value=10000)
+    lease_start = st.sidebar.date_input("Lease Start Date", value=date(2020, 6, 30))
     current_rent = st.sidebar.number_input("Current Rent (£ per month)", value=50000)
     review_date = st.sidebar.date_input("Review Date", value=date(2025, 6, 30))
     lease_termination = st.sidebar.date_input("Lease Termination Date", value=date(2025, 12, 31))
@@ -35,6 +36,7 @@ def main():
             cashflow_start=cashflow_start,
             cashflow_term=cashflow_term,
             unit_area=unit_area,
+            lease_start=lease_start,
             current_rent=current_rent,
             review_date=review_date,
             lease_termination=lease_termination,
