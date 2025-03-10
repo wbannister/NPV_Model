@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import itertools
 from datetime import date
 
-from npv_irr_calculations import create_cashflow, calculate_npv, calculate_irr
+from npv_irr_calculations import *
 
 def main():
     st.sidebar.title("Model Inputs")
@@ -56,6 +56,15 @@ def main():
         )
         st.session_state["cashflow"] = cashflow
         # st.write("Session State Contents:", st.session_state)
+        
+        ryp=rent_yp(exit_cap/100,cashflow_start,review_date,lease_termination)
+        st.write(ryp, exit_cap/100)
+        rryp=rent_review_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
+        st.write(rryp)
+        revyp=reversion_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
+        st.write(revyp)
+        current_valuation = valuation(current_rent, ryp, (headline_erv*unit_area), ner_discount/100,rryp,revyp)
+        st.write(f"Current Valuation: £{current_valuation:,.2f}")
                     
     # If cashflow exists, display results and allow dynamic discount rate updates
     if st.session_state["cashflow"] is not None:
