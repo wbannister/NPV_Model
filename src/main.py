@@ -6,9 +6,11 @@ import itertools
 from datetime import date
 
 from npv_irr_calculations import *
+from dateutil.relativedelta import relativedelta
 
 def main():
     st.sidebar.title("Model Inputs")
+
 
     # Top-of-Page Inputs (Organized Across Columns)
     col1, col2, col3, col4 = st.columns(4)
@@ -36,14 +38,39 @@ def main():
    
 
     # Sidebar Inputs
+    st.sidebar.subheader("Default Model Assumptions")
     cashflow_start = st.sidebar.date_input("Cashflow Start Date", value=date(2025, 1, 1))
     cashflow_term = st.sidebar.number_input("Cashflow Term (months)", value=60)
+    exit_date = cashflow_start + relativedelta(months=cashflow_term)
+    st.sidebar.markdown(f"**Exit Date:** {exit_date}")
+    
+    st.sidebar.markdown("---")
+    
+    st.sidebar.subheader("Entry Pricing Assumptions")
+
     entry_initial_yield = st.sidebar.number_input("Entry Initial Yield (%)", value=10.00)
     purchasers_costs = st.sidebar.number_input("Purchasers Costs (%)", value=6.8)
     # current_rent is defined below; compute initial valuation once it’s available:
     initial_val = initial_yield_valuation(current_rent, entry_initial_yield / 100, purchasers_costs / 100) if 'current_rent' in locals() else 0
-    st.sidebar.write(f"Entry Valuation: £{initial_val:,.2f}")
+    st.sidebar.markdown(
+        f"<div style='background-color:#f0f0f0; padding:10px; border-radius:5px; font-size:18px; font-weight:bold;'>Entry Valuation: £{initial_val:,.0f}</div>",
+        unsafe_allow_html=True
+    )
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Exit Pricing Assumptions")
+    
     exit_initial_yield = st.sidebar.number_input("Exit Initial Yield (%)", value=12.00)
+    
+    # Initialize with default values
+    exit_rent = 0
+    exit_price = 2000000  # default until cashflow is generated
+    
+    # Create a placeholder for the exit rent display
+    exit_rent_placeholder = st.sidebar.empty()
+    # Create a placeholder for the exit price display
+    exit_price_placeholder = st.sidebar.empty()
+    
     if "cashflow" in st.session_state and st.session_state["cashflow"] is not None:
         # Use the second-to-last row of the cashflow table
         second_last_row = st.session_state["cashflow"].iloc[-2]
@@ -56,12 +83,17 @@ def main():
         # Annualise the maximum rent to get exit rent
         exit_rent = max_rent * 12
         # Compute exit price using the initial yield valuation formula
-        st.sidebar.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}")
         exit_price = initial_yield_valuation(exit_rent, exit_initial_yield / 100, purchasers_costs / 100)
-        st.sidebar.write(f"Computed Exit Price (Annualised): £{exit_price:,.2f}")
-    else:
-        exit_price = 2000000  # default until cashflow is generated
-        st.sidebar.write("Computed Exit Price will appear here once cashflow is generated.")
+    
+    # Update the placeholders with current values
+    exit_rent_placeholder.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}" if exit_rent > 0 else "Computed Exit Rent will appear here once cashflow is generated.")
+    exit_price_placeholder.markdown(
+        f"<div style='background-color:#f0f0f0; padding:10px; border-radius:5px; font-size:18px; font-weight:bold;'>Exit Valuation: £{exit_price:,.0f}</div>" if exit_rent > 0 else "Computed Exit Price will appear here once cashflow is generated.",
+        unsafe_allow_html=True
+    )
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Misc Assumptions")
     vacant_rates_percent = st.sidebar.number_input("Vacant Rates Percent (%)", value=50)
     rates_relief = st.sidebar.number_input("Rates Relief (months)", value=3)
     vacant_sc = st.sidebar.number_input("Vacant Service Charge (£ per sq ft)", value=2)
@@ -91,29 +123,23 @@ def main():
             exit_price=exit_price
         )
         st.session_state["cashflow"] = cashflow
-        # st.write("Session State Contents:", st.session_state)
-        
-        # ryp=rent_yp(exit_cap/100,cashflow_start,review_date,lease_termination)
-        # st.write(ryp, exit_cap/100)
-        # rryp=rent_review_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
-        # # st.write(rryp)
-        # revyp=reversion_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
-        # # st.write(revyp)
-        # current_valuation = valuation(current_rent, ryp, (headline_erv*unit_area), ner_discount/100,rryp,revyp)
-        # st.write(f"Current Valuation: £{current_valuation:,.2f}")
+
                     
     # If cashflow exists, display results and allow dynamic discount rate updates
     if st.session_state["cashflow"] is not None:
-        st.subheader("Cashflow Data")
-        st.dataframe(st.session_state["cashflow"])
-
+        st.subheader("Cashflow Outputs")
+        
         discount_rate_input = st.number_input("Discount Rate %", value=10.00, key="discount_rate", min_value=0.00, max_value=100.00, step=0.25)
-        irr = calculate_irr(st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
-        npv = calculate_npv(discount_rate_input/100, st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
-        st.write(f"IRR (Monthly): {irr * 100:.2f}%")
-        st.write(f"NPV: £{npv:,.2f}")
-
-
+        col4, col5 = st.columns(2)
+        with col4:
+            irr = calculate_irr(st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
+            st.write(f"IRR (Monthly): {irr * 100:.2f}%")    
+            
+        with col5:
+            npv = calculate_npv(discount_rate_input/100, st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
+            st.write(f"NPV: £{npv:,.2f}")
+            
+        
         # Plot the cashflows without clearing the previous output
         import plotly.graph_objects as go
         chart_data = st.session_state["cashflow"].iloc[1:-1]
@@ -179,95 +205,20 @@ def main():
         )
         
         st.plotly_chart(fig)
-        # st.subheader("Cashflow Data")
-        # st.dataframe(cashflow)
         
-        # discount_rate_input = st.number_input("Discount Rate", value=0.1)
+        display_df = st.session_state["cashflow"].copy().drop(columns=["cashflow_line", "month"])
+        currency_fmt = lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x
+        format_dict = {col: currency_fmt for col in display_df.columns}
         
-        # irr = calculate_irr(cashflow['period_start'], cashflow['cashflow'])
-        # npv = calculate_npv(discount_rate_input, cashflow['period_start'], cashflow['cashflow'])
-        # st.write(f"IRR (Monthly): {irr * 100:.2f}%")
-        # st.write(f"NPV: £{npv:.2f}")
-        
-        # cashflow = cashflow.iloc[1:-1]
-        # # Plot the cashflows
-        # fig, ax = plt.subplots(figsize=(10, 6))
+        st.subheader("Cashflow Data Table")
+        st.dataframe(
+            display_df.style.format(format_dict)
+        )
 
-        # # Define colors for each category
-        # colors = {
-        #     "contracted_rent": "green",
-        #     "reviewed_rent": "lightgreen",
-        #     "refurbishment_period": "orange",
-        #     "void_period": "red",
-        #     "rf_period": "yellow",
-        #     "relet_rent": "blue"
-        # }
-        # import plotly.graph_objects as go
 
-        # # Create an interactive Plotly figure
-        # fig = go.Figure()
 
-        # # Add shapes for each contiguous category period
-        # for category, color in colors.items():
-        #     cat_months = cashflow[cashflow["category"] == category]["month"].tolist()
-        #     if not cat_months:
-        #         continue
 
-        #     # Identify contiguous segments
-        #     segs = []
-        #     for k, g in itertools.groupby(enumerate(cat_months), key=lambda ix: ix[1] - ix[0]):
-        #         group = list(g)
-        #         start = group[0][1]
-        #         end = group[-1][1]
-        #         segs.append((start, end))
-
-        #     for start, end in segs:
-        #         fig.add_shape(
-        #             type="rect",
-        #             x0=start,
-        #             x1=end + 1,
-        #             y0=cashflow["cashflow_line"].min(),
-        #             y1=cashflow["cashflow_line"].max(),
-        #             fillcolor=color,
-        #             opacity=0.3,
-        #             layer="below",
-        #             line_width=0,
-        #         )
-                
-        #     # Add a transparent scatter trace for the legend entry
-        #     fig.add_trace(
-        #         {
-        #             "type": "scatter",
-        #             "x": [None],
-        #             "y": [None],
-        #             "mode": "markers",
-        #             "marker": {"size": 10, "color": color},
-        #             "name": category,
-        #             "showlegend": True,
-        #         }
-        #     )
-
-        # # Add the cashflow line over the shaded background
-        # fig.add_trace(
-        #     go.Scatter(
-        #         x=cashflow["month"],
-        #         y=cashflow["cashflow"],
-        #         mode="lines",
-        #         line=dict(color="black", width=2),
-        #         name="Cashflow",
-        #     )
-        # )
-
-        # # Update layout for titles and axis labels
-        # fig.update_layout(
-        #     title="Cashflow Over Time with Full-Row Category Shading",
-        #     xaxis_title="Month",
-        #     yaxis_title="Cashflow",
-        #     showlegend=True,
-        # )
-
-        # # Render the Plotly chart in Streamlit
-        # st.plotly_chart(fig)
+       
 
 if __name__ == "__main__":
     main()

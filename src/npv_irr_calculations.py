@@ -312,7 +312,7 @@ def create_cashflow(
             return row['cashflow']
 
     cashflows_df['cashflow_line'] = cashflows_df.apply(compute_cashflow_line, axis=1)
-    print(cashflows_df)    
+    # print(cashflows_df)    
     # Reorder columns if necessary
     return cashflows_df
 
