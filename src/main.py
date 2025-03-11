@@ -71,26 +71,26 @@ def main():
     # Create a placeholder for the exit price display
     exit_price_placeholder = st.sidebar.empty()
     
-    if "cashflow" in st.session_state and st.session_state["cashflow"] is not None:
-        # Use the second-to-last row of the cashflow table
-        second_last_row = st.session_state["cashflow"].iloc[-2]
-        # Extract rents from the different rent option columns and determine the maximum
-        max_rent = max(
-            second_last_row["contracted_rent"],
-            second_last_row["reviewed_rent"],
-            second_last_row["relet_rent"]
-        )
-        # Annualise the maximum rent to get exit rent
-        exit_rent = max_rent * 12
-        # Compute exit price using the initial yield valuation formula
-        exit_price = initial_yield_valuation(exit_rent, exit_initial_yield / 100, purchasers_costs / 100)
+    # if "cashflow" in st.session_state and st.session_state["cashflow"] is not None:
+    #     # Use the second-to-last row of the cashflow table
+    #     second_last_row = st.session_state["cashflow"].iloc[-2]
+    #     # Extract rents from the different rent option columns and determine the maximum
+    #     max_rent = max(
+    #         second_last_row["contracted_rent"],
+    #         second_last_row["reviewed_rent"],
+    #         second_last_row["relet_rent"]
+    #     )
+    #     # Annualise the maximum rent to get exit rent
+    #     exit_rent = max_rent * 12
+    #     # Compute exit price using the initial yield valuation formula
+    #     exit_price = initial_yield_valuation(exit_rent, exit_initial_yield / 100, purchasers_costs / 100)
     
-    # Update the placeholders with current values
-    exit_rent_placeholder.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}" if exit_rent > 0 else "Computed Exit Rent will appear here once cashflow is generated.")
-    exit_price_placeholder.markdown(
-        f"<div style='background-color:#f0f0f0; padding:10px; border-radius:5px; font-size:18px; font-weight:bold;'>Exit Valuation: £{exit_price:,.0f}</div>" if exit_rent > 0 else "Computed Exit Price will appear here once cashflow is generated.",
-        unsafe_allow_html=True
-    )
+    # # Update the placeholders with current values
+    # exit_rent_placeholder.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}" if exit_rent > 0 else "Computed Exit Rent will appear here once cashflow is generated.")
+    # exit_price_placeholder.markdown(
+    #     f"<div style='background-color:#f0f0f0; padding:10px; border-radius:5px; font-size:18px; font-weight:bold;'>Exit Valuation: £{exit_price:,.0f}</div>" if exit_rent > 0 else "Computed Exit Price will appear here once cashflow is generated.",
+    #     unsafe_allow_html=True
+    # )
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("Misc Assumptions")
@@ -98,32 +98,54 @@ def main():
     rates_relief = st.sidebar.number_input("Rates Relief (months)", value=3)
     vacant_sc = st.sidebar.number_input("Vacant Service Charge (£ per sq ft)", value=2)
     
+    exit_price = st.session_state.get("exit_price", initial_val)  # default to initial valuation for exit price
+    # if st.button("Calculate Cashflow"):
+    cashflow = create_cashflow(
+        cashflow_start=cashflow_start,
+        cashflow_term=cashflow_term,
+        unit_area=unit_area,
+        lease_start=lease_start,
+        current_rent=current_rent,
+        review_date=review_date,
+        lease_termination=lease_termination,
+        headline_erv=headline_erv,
+        ner_discount=ner_discount/100,
+        refurb_cost=refurb_cost,
+        refurb_duration=refurb_duration,
+        void_period=void_period,
+        rf=rf,
+        relet_term=relet_term,
+        exit_cap=exit_initial_yield/100,
+        vacant_rates_percent=vacant_rates_percent/100,
+        rates_relief=rates_relief,
+        vacant_sc=vacant_sc,
+        entry_price=initial_val,
+        exit_price=exit_price
+    )
+    st.session_state["cashflow"] = cashflow
 
-    if st.button("Calculate Cashflow"):
-        cashflow = create_cashflow(
-            cashflow_start=cashflow_start,
-            cashflow_term=cashflow_term,
-            unit_area=unit_area,
-            lease_start=lease_start,
-            current_rent=current_rent,
-            review_date=review_date,
-            lease_termination=lease_termination,
-            headline_erv=headline_erv,
-            ner_discount=ner_discount/100,
-            refurb_cost=refurb_cost,
-            refurb_duration=refurb_duration,
-            void_period=void_period,
-            rf=rf,
-            relet_term=relet_term,
-            exit_cap=exit_initial_yield/100,
-            vacant_rates_percent=vacant_rates_percent/100,
-            rates_relief=rates_relief,
-            vacant_sc=vacant_sc,
-            entry_price=initial_val,
-            exit_price=exit_price
-        )
-        st.session_state["cashflow"] = cashflow
 
+    # Use the second-to-last row of the cashflow table
+    second_last_row = st.session_state["cashflow"].iloc[-2]
+    # Extract rents from the different rent option columns and determine the maximum
+    max_rent = max(
+        second_last_row["contracted_rent"],
+        second_last_row["reviewed_rent"],
+        second_last_row["relet_rent"]
+    )
+    # Annualise the maximum rent to get exit rent
+    exit_rent = max_rent * 12
+    # Compute exit price using the initial yield valuation formula
+    exit_price_new = initial_yield_valuation(exit_rent, exit_initial_yield / 100, purchasers_costs / 100)
+    
+    st.session_state["exit_price"] = exit_price_new
+    
+    # Update the placeholders with current values
+    exit_rent_placeholder.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}" if exit_rent > 0 else "Computed Exit Rent will appear here once cashflow is generated.")
+    exit_price_placeholder.markdown(
+        f"<div style='background-color:#f0f0f0; padding:10px; border-radius:5px; font-size:18px; font-weight:bold;'>Exit Valuation: £{exit_price_new:,.0f}</div>" if exit_rent > 0 else "Computed Exit Price will appear here once cashflow is generated.",
+        unsafe_allow_html=True
+    )
                     
     # If cashflow exists, display results and allow dynamic discount rate updates
     if st.session_state["cashflow"] is not None:
