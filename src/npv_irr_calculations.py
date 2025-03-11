@@ -52,7 +52,7 @@ def yrs_to_reversion(cashflow_start, lease_termination, initial_void, initial_rf
     return yrs_reversion
 
 
-print(yrs_to_review(date(2024, 12, 31), date(2029, 6, 7)))
+# print(yrs_to_review(date(2024, 12, 31), date(2029, 6, 7)))
 
 
 def rent_yp(discount_rate, cashflow_start, review_date, lease_termination):
@@ -81,13 +81,13 @@ def rent_review_yp(discount_rate, cashflow_start, lease_start, review_date, leas
     discount_factor = (1+discount_rate)
     
     yrs_reversion = yrs_to_reversion(cashflow_start, lease_termination, initial_void, initial_rf, end_void, relet_rf)
-    
+    remaining_term = (lease_termination - cashflow_start).days / 365.25
     yrs_review = yrs_to_review(cashflow_start, review_date)
     
     if review_date == lease_termination:
         rr_val = 0
     else:
-        rr_val = ((1 - (1/discount_factor)**(yrs_reversion - yrs_review)) / discount_rate) * ((1/discount_factor)**yrs_review)
+        rr_val = ((1 - (1/discount_factor)**(remaining_term - yrs_review)) / discount_rate) * ((1/discount_factor)**yrs_review)
         
     rr_yp = max(0, rr_val)
     
@@ -119,6 +119,12 @@ def reversion_yp(discount_rate, cashflow_start, lease_start, review_date, lease_
 rentyp = rent_yp(0.0705, date(2024, 12, 31), date(2029, 6, 7), date(2034, 5, 27))
 rr_yp = rent_review_yp(0.0705, date(2024, 12, 31), date(2019, 6, 7), date(2029, 6, 7), date(2034, 5, 27), 0, 0, 0, 12)
 rev_yp = reversion_yp(0.0705, date(2024, 12, 31), date(2019, 6, 7), date(2029, 6, 7), date(2034, 5, 27), 0, 0, 0, 12)
+
+def initial_yield_valuation(current_rent, net_initial_yield, purchasers_costs=0.068):
+    '''function to calculate the valuation of a property based on the initial yield'''
+    
+    value = current_rent / net_initial_yield / (1 + purchasers_costs)
+    return round(value, -4)
 
 
 def valuation(current_rent, rent_yp, headline_erv, ner_discount, rent_review_yp, reversion_yp):

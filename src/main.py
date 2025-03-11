@@ -10,27 +10,63 @@ from npv_irr_calculations import *
 def main():
     st.sidebar.title("Model Inputs")
 
-    entry_price = st.sidebar.number_input("Entry Price (£)", value=1000000)
-    exit_price = st.sidebar.number_input("Exit Price (£)", value=2000000)
+    # Top-of-Page Inputs (Organized Across Columns)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        unit_area = st.number_input("Unit Area (sq ft)", value=10000)
+        lease_start = st.date_input("Lease Start Date", value=date(2020, 6, 30))
+    
+        refurb_cost = st.number_input("Refurb Cost (£ psf)", value=20)
+    
+    with col2:
+        current_rent = st.number_input("Current Rent (£ per month)", value=50000)
+        review_date = st.date_input("Review Date", value=date(2025, 6, 30))
+        refurb_duration = st.number_input("Refurb Duration (months)", value=3)
+    
+    with col3:
+        headline_erv = st.number_input("Headline ERV (£ per sq ft)", value=20)
+        lease_termination = st.date_input("Lease Termination Date", value=date(2025, 12, 31))
+        void_period = st.number_input("Addn. Void Period (months)", value=12)
+    
+    with col4:
+        ner_discount = st.number_input("NER Discount (%)", value=50)
+        relet_term = st.number_input("Relet Term (years)", value=5)
+        rf = st.number_input("Rent Free Period (months)", value=3)
+   
+
+    # Sidebar Inputs
     cashflow_start = st.sidebar.date_input("Cashflow Start Date", value=date(2025, 1, 1))
     cashflow_term = st.sidebar.number_input("Cashflow Term (months)", value=60)
-    unit_area = st.sidebar.number_input("Unit Area (sq ft)", value=10000)
-    lease_start = st.sidebar.date_input("Lease Start Date", value=date(2020, 6, 30))
-    current_rent = st.sidebar.number_input("Current Rent (£ per month)", value=50000)
-    review_date = st.sidebar.date_input("Review Date", value=date(2025, 6, 30))
-    lease_termination = st.sidebar.date_input("Lease Termination Date", value=date(2025, 12, 31))
-    headline_erv = st.sidebar.number_input("Headline ERV (£ per sq ft)", value=20)
-    ner_discount = st.sidebar.number_input("NER Discount (%)", value=50)
-    refurb_cost = st.sidebar.number_input("Refurbishment Cost (£ per sq ft)", value=20)
-    refurb_duration = st.sidebar.number_input("Refurbishment Duration (months)", value=3)
-    void_period = st.sidebar.number_input("Void Period (months)", value=12)
-    rf = st.sidebar.number_input("Rent Free Period (months)", value=3)
-    relet_term = st.sidebar.number_input("Relet Term (months)", value=6)
-    exit_cap = st.sidebar.number_input("Exit Cap Rate (%)", value=6)
+    entry_initial_yield = st.sidebar.number_input("Entry Initial Yield (%)", value=10.00)
+    purchasers_costs = st.sidebar.number_input("Purchasers Costs (%)", value=6.8)
+    # current_rent is defined below; compute initial valuation once it’s available:
+    initial_val = initial_yield_valuation(current_rent, entry_initial_yield / 100, purchasers_costs / 100) if 'current_rent' in locals() else 0
+    st.sidebar.write(f"Entry Valuation: £{initial_val:,.2f}")
+    exit_initial_yield = st.sidebar.number_input("Exit Initial Yield (%)", value=12.00)
+    if "cashflow" in st.session_state and st.session_state["cashflow"] is not None:
+        # Use the second-to-last row of the cashflow table
+        second_last_row = st.session_state["cashflow"].iloc[-2]
+        # Extract rents from the different rent option columns and determine the maximum
+        max_rent = max(
+            second_last_row["contracted_rent"],
+            second_last_row["reviewed_rent"],
+            second_last_row["relet_rent"]
+        )
+        # Annualise the maximum rent to get exit rent
+        exit_rent = max_rent * 12
+        # Compute exit price using the initial yield valuation formula
+        st.sidebar.write(f"Exit Rent (Annualised): £{exit_rent:,.2f}")
+        exit_price = initial_yield_valuation(exit_rent, exit_initial_yield / 100, purchasers_costs / 100)
+        st.sidebar.write(f"Computed Exit Price (Annualised): £{exit_price:,.2f}")
+    else:
+        exit_price = 2000000  # default until cashflow is generated
+        st.sidebar.write("Computed Exit Price will appear here once cashflow is generated.")
     vacant_rates_percent = st.sidebar.number_input("Vacant Rates Percent (%)", value=50)
     rates_relief = st.sidebar.number_input("Rates Relief (months)", value=3)
     vacant_sc = st.sidebar.number_input("Vacant Service Charge (£ per sq ft)", value=2)
-        
+    
+
     if st.button("Calculate Cashflow"):
         cashflow = create_cashflow(
             cashflow_start=cashflow_start,
@@ -47,24 +83,24 @@ def main():
             void_period=void_period,
             rf=rf,
             relet_term=relet_term,
-            exit_cap=exit_cap/100,
+            exit_cap=exit_initial_yield/100,
             vacant_rates_percent=vacant_rates_percent/100,
             rates_relief=rates_relief,
             vacant_sc=vacant_sc,
-            entry_price=entry_price,
+            entry_price=initial_val,
             exit_price=exit_price
         )
         st.session_state["cashflow"] = cashflow
         # st.write("Session State Contents:", st.session_state)
         
-        ryp=rent_yp(exit_cap/100,cashflow_start,review_date,lease_termination)
-        st.write(ryp, exit_cap/100)
-        rryp=rent_review_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
-        st.write(rryp)
-        revyp=reversion_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
-        st.write(revyp)
-        current_valuation = valuation(current_rent, ryp, (headline_erv*unit_area), ner_discount/100,rryp,revyp)
-        st.write(f"Current Valuation: £{current_valuation:,.2f}")
+        # ryp=rent_yp(exit_cap/100,cashflow_start,review_date,lease_termination)
+        # st.write(ryp, exit_cap/100)
+        # rryp=rent_review_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
+        # # st.write(rryp)
+        # revyp=reversion_yp(exit_cap/100,cashflow_start, lease_start,review_date,lease_termination,void_period,rf,void_period+1, rf+1)
+        # # st.write(revyp)
+        # current_valuation = valuation(current_rent, ryp, (headline_erv*unit_area), ner_discount/100,rryp,revyp)
+        # st.write(f"Current Valuation: £{current_valuation:,.2f}")
                     
     # If cashflow exists, display results and allow dynamic discount rate updates
     if st.session_state["cashflow"] is not None:
@@ -75,7 +111,7 @@ def main():
         irr = calculate_irr(st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
         npv = calculate_npv(discount_rate_input/100, st.session_state["cashflow"]['period_start'], st.session_state["cashflow"]['cashflow'])
         st.write(f"IRR (Monthly): {irr * 100:.2f}%")
-        st.write(f"NPV: £{npv:.2f}")
+        st.write(f"NPV: £{npv:,.2f}")
 
 
         # Plot the cashflows without clearing the previous output
