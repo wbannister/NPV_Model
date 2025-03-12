@@ -1,4 +1,5 @@
 import streamlit as st
+st.set_page_config(layout="wide")
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -162,6 +163,7 @@ def main():
             st.write(f"NPV: £{npv:,.2f}")
             
         
+        # Old chart format
         # Plot the cashflows without clearing the previous output
         import plotly.graph_objects as go
         chart_data = st.session_state["cashflow"].iloc[1:-1]
@@ -212,7 +214,7 @@ def main():
         fig.add_trace(
             go.Scatter(
                 x=chart_data["month"],
-                y=chart_data["cashflow"],
+                y=chart_data["cashflow_line"],
                 mode="lines",
                 line=dict(color="black", width=2),
                 name="Cashflow",
@@ -226,8 +228,88 @@ def main():
             showlegend=True,
         )
         
-        st.plotly_chart(fig)
+        # st.plotly_chart(fig)
         
+
+
+        import plotly.express as px
+
+        # Present the rent components over time using a multi-line chart
+        if "cashflow" in st.session_state and st.session_state["cashflow"] is not None:
+            df = st.session_state["cashflow"]
+            fig2 = go.Figure()
+            
+            fig2.add_trace(go.Scatter(
+            x=df["period_start"],
+            y=df["contracted_rent"],
+            mode="lines+markers",
+            name="Contracted Rent",
+            line=dict(color="green")
+            ))
+            
+            fig2.add_trace(go.Scatter(
+            x=df["period_start"],
+            y=df["reviewed_rent"],
+            mode="lines+markers",
+            name="Reviewed Rent",
+            line=dict(color="lightgreen")
+            ))
+            
+            fig2.add_trace(go.Scatter(
+            x=df["period_start"],
+            y=df["rf_period"],
+            mode="lines+markers",
+            name="Rent Free Period",
+            line=dict(color="orange")
+            ))
+            
+            fig2.add_trace(go.Scatter(
+            x=df["period_start"],
+            y=df["relet_rent"],
+            mode="lines+markers",
+            name="Relet Rent",
+            line=dict(color="blue")
+            ))
+            
+            fig2.add_trace(go.Scatter(
+            x=df["period_start"],
+            y=df["void_period"],
+            mode="lines+markers",
+            name="Void Costs",
+            line=dict(color="red")
+            ))
+            
+            fig2.update_layout(
+            title="Income Components over Time",
+            xaxis_title="Period Start",
+            yaxis_title="Rent (£)"
+            )
+            # st.plotly_chart(fig2)
+            
+            
+            fig3 = go.Figure(
+                go.Scatter(
+                    x=df["period_start"],
+                    y=df["refurbishment_period"],
+                    name="Refurbishment Period",
+                    mode="lines",
+                    line=dict(color="red"),
+                    fill="tozeroy"
+                )
+            )
+            fig3.update_layout(
+                title="Refurbishment Period Over Time",
+                xaxis_title="Period Start",
+                yaxis_title="Refurbishment Period"
+            )
+            # st.plotly_chart(fig3)
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.plotly_chart(fig2, use_container_width=True)
+            with col2:
+                st.plotly_chart(fig3, use_container_width=True)
+
         display_df = st.session_state["cashflow"].copy().drop(columns=["cashflow_line", "month"])
         currency_fmt = lambda x: f"£{x:,.2f}" if isinstance(x, (int, float)) else x
         format_dict = {col: currency_fmt for col in display_df.columns}
@@ -236,11 +318,6 @@ def main():
         st.dataframe(
             display_df.style.format(format_dict)
         )
-
-
-
-
-       
 
 if __name__ == "__main__":
     main()
