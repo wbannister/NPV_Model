@@ -130,20 +130,20 @@ def initial_yield_valuation(current_rent, net_initial_yield, purchasers_costs=0.
 def valuation(current_rent, rent_yp, headline_erv, ner_discount, rent_review_yp, reversion_yp):
     
     rent_val = current_rent * rent_yp
-    print(rent_val)
+    # print(rent_val)
     net_effective_rent = headline_erv * ner_discount
     if current_rent > net_effective_rent:
         review_val = current_rent * rent_review_yp
     else:
         review_val = net_effective_rent * rent_review_yp
     
-    print(review_val)
+    # print(review_val)
     reversion_val = headline_erv * reversion_yp
     
-    print(reversion_val)
+    # print(reversion_val)
     return rent_val + review_val + reversion_val
 
-print(valuation(220816, rentyp, 325286, 1, rr_yp, rev_yp))
+# print(valuation(220816, rentyp, 325286, 1, rr_yp, rev_yp))
 
 ### Valuation function works in this one unit example. Work needs to be done in making the calling of this function more efficient (i.e. done while inputting the rest of the stuff for the cashflow..).
 ### Can we make this valuation function work so that it get's applied on each cashflow month, showing value change over time. 
@@ -171,6 +171,7 @@ def create_cashflow(
     relet_rent: Optional[float] = None,
     entry_price: float = 0.0,
     exit_price: float = 0.0,
+    quarterly_in_advance: bool = True
     ):
     '''Input unit and lease details to calculate a cashflow for X inputted months,
     plus an initial entry price and a final exit price.
@@ -199,7 +200,7 @@ def create_cashflow(
     # Calculate relet_date as lease_termination plus refurb_duration and void_period (in months)
     relet_months = int(refurb_duration + void_period)
     relet_date = add_months(lease_termination, relet_months)
-    print(relet_date)
+    # print(relet_date)
 
     # Monthly refurb cost per month (as a negative cashflow)
     monthly_refurb_cost = -(refurb_cost * unit_area) / refurb_duration
@@ -273,10 +274,45 @@ def create_cashflow(
     # Set up a month index starting at 0 for the computed cashflows
     cashflows_df['month'] = range(len(cashflows))
     
-    # Calculate the total cashflow for each month
-    cashflows_df['cashflow'] = cashflows_df.drop(columns=['month','category']).sum(axis=1)
     cashflows_df['period_start'] = cashflows_df['month'].apply(lambda m: add_months(cashflow_start, m))
     cashflows_df['period_end'] = cashflows_df['period_start'].apply(lambda d: d.replace(day=calendar.monthrange(d.year, d.month)[1]))
+    
+    # Transform rent columns to quarterly in advance
+    if quarterly_in_advance==True:
+        quarter_months = {4, 7, 10, 1} # offset quarters by one month (assuming rent received on day 1 of month following quarter date)
+        # Identify rent columns that need quarterly treatment
+        rent_columns = ["contracted_rent", "reviewed_rent", "rf_period", "relet_rent"]
+
+        # First sum all rent columns into a total_rent column
+        cashflows_df['total_rent'] = cashflows_df[rent_columns].sum(axis=1)
+        
+        # Create a copy to store the original monthly rents
+        monthly_rents = cashflows_df['total_rent'].copy()
+        
+        # Apply quarterly-in-advance logic
+        for i in range(len(cashflows_df)):
+            if cashflows_df.iloc[i]["period_start"].month in quarter_months:
+                # For a quarter-starting month, sum this month and the next two (if they exist)
+                quarter_sum = monthly_rents.iloc[i]
+                if i+1 < len(monthly_rents):
+                    quarter_sum += monthly_rents.iloc[i+1]
+                    cashflows_df.loc[cashflows_df.index[i+1], 'total_rent'] = 0
+                if i+2 < len(monthly_rents):
+                    quarter_sum += monthly_rents.iloc[i+2]
+                    cashflows_df.loc[cashflows_df.index[i+2], 'total_rent'] = 0
+                
+                # Set the quarterly payment at the quarter-starting month
+                cashflows_df.loc[cashflows_df.index[i], 'total_rent'] = quarter_sum
+        
+        # # Set individual rent columns to 0 to avoid double counting
+        # for rc in rent_columns:
+        #     if rc in cashflows_df.columns:
+        #         cashflows_df[rc] = 0
+                
+    
+    # Calculate the total cashflow for each month
+    cashflows_df['cashflow'] = cashflows_df[['total_rent', 'refurbishment_period', 'void_period']].sum(axis=1)
+    # print(cashflows_df)
     
     # Incorporate entry_price and exit_price. Create an entry row one day before cashflow_start
     entry_row = pd.DataFrame({
@@ -303,17 +339,20 @@ def create_cashflow(
     cashflows_df = pd.concat([entry_row, cashflows_df, exit_row], ignore_index=True)
     
 
-    def compute_cashflow_line(row):
-        if row['category'] == 'entry':
-            return row['cashflow'] + entry_price
-        elif row['category'] == 'exit':
-            return row['cashflow'] - exit_price
-        else:
-            return row['cashflow']
+    # First compute the basic cashflow line with entry/exit adjustments
+    cashflows_df['cashflow_line'] = cashflows_df.apply(
+        lambda row: row['cashflow'] + entry_price if row['category'] == 'entry' else 
+                    (row['cashflow'] - exit_price if row['category'] == 'exit' else row['cashflow']),
+        axis=1
+    )
 
-    cashflows_df['cashflow_line'] = cashflows_df.apply(compute_cashflow_line, axis=1)
-    # print(cashflows_df)    
+    # Smooth rent categories with zero cashflow
+    for i in range(1, len(cashflows_df)):
+        current_cat = str(cashflows_df.iloc[i].get('category', ''))
+        if 'rent' in current_cat.lower() and cashflows_df.iloc[i]['cashflow'] == 0:
+            cashflows_df.at[i, 'cashflow_line'] = cashflows_df.at[i-1, 'cashflow_line']
     # Reorder columns if necessary
+    print(cashflows_df)
     return cashflows_df
 
 # Test the function
@@ -324,14 +363,14 @@ if __name__ == "__main__":
         unit_area=10000,
         lease_start=date(2020, 1, 1),
         current_rent=50000,
-        review_date=date(2025, 6, 30),
+        review_date=date(2025, 7, 31),
         lease_termination=date(2025, 12, 31),
         headline_erv=20,
-        ner_discount=0.50,
+        ner_discount=0.70,
         refurb_cost=20,
         refurb_duration=3,
         void_period=12,
-        rf=3,
+        rf=8,
         relet_term=6,
         exit_cap=0.06,
         vacant_rates_percent=0.5,
