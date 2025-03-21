@@ -28,7 +28,7 @@ def main():
         refurb_duration = st.number_input("Refurb Duration (months)", value=3)
     
     with col3:
-        headline_erv = st.number_input("Headline ERV (£ per sq ft)", value=20)
+        headline_erv = st.number_input("Headline ERV (£ per sq ft)", value=20.00, step=0.25, format="%.2f")
         lease_termination = st.date_input("Lease Termination Date", value=date(2025, 12, 31))
         void_period = st.number_input("Addn. Void Period (months)", value=12)
     

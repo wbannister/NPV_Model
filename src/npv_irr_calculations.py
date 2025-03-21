@@ -203,7 +203,10 @@ def create_cashflow(
     # print(relet_date)
 
     # Monthly refurb cost per month (as a negative cashflow)
-    monthly_refurb_cost = -(refurb_cost * unit_area) / refurb_duration
+    if refurb_duration == 0:
+        monthly_refurb_cost = 0
+    else:
+        monthly_refurb_cost = -(refurb_cost * unit_area) / refurb_duration
 
     for i in range(int(cashflow_term)):
         # Initialize a row with zero for each category
