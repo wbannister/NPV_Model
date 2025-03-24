@@ -17,3 +17,5 @@ data/
 
 # PyTest cache
 pytest_cache/
+
+install_msodbcsql17.sh
